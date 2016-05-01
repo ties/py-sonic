@@ -2487,7 +2487,7 @@ class Connection(object):
 
     def _doBinReq(self, req):
         res = self._opener.send(req, stream=True)
-        contType = res.headers['Content-Type']
+        contType = res.headers.get('Content-Type', None)
 
         if contType:
             if contType.startswith('text/html') or \
