@@ -2486,7 +2486,7 @@ class Connection(object):
         return dres['subsonic-response']
 
     def _doBinReq(self, req):
-        res = self._opener.send(req)
+        res = self._opener.send(req, stream=True)
         contType = res.headers['Content-Type']
 
         if contType:
@@ -2494,7 +2494,7 @@ class Connection(object):
                     contType.startswith('application/json'):
                 dres = res.json()
                 return dres['subsonic-response']
-        return res
+        return res.raw
 
     def _checkStatus(self, result):
         if result['status'] == 'ok':
