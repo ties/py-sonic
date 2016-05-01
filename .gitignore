@@ -3,3 +3,4 @@ test.py
 MANIFEST
 dist
 build
+.python-version
