@@ -15,85 +15,24 @@ You should have received a copy of the GNU General Public License
 along with py-sonic.  If not, see <http://www.gnu.org/licenses/>
 """
 
+import json
+import logging
+import sys
+
+from requests import Request, Session
+
 from base64 import b64encode
 from urllib import urlencode
 from .errors import *
 from pprint import pprint
 from cStringIO import StringIO
 from netrc import netrc
-import json, urllib2, httplib, logging, socket, ssl, sys
+
 
 API_VERSION = '1.13.0'
 
 logger = logging.getLogger(__name__)
 
-class HTTPSConnectionChain(httplib.HTTPSConnection):
-    _preferred_ssl_protos = sorted([ p for p in dir(ssl)
-        if p.startswith('PROTOCOL_') ], reverse=True)
-    _ssl_working_proto = None
-
-    def _create_sock(self):
-        sock = socket.create_connection((self.host, self.port), self.timeout)
-        if self._tunnel_host:
-            self.sock = sock
-            self._tunnel()
-        return sock
-
-    def connect(self):
-        if self._ssl_working_proto is not None:
-            # If we have a working proto, let's use that straight away
-            logger.debug("Using known working proto: '%s'",
-                         self._ssl_working_proto)
-            sock = self._create_sock()
-            self.sock = ssl.wrap_socket(sock, self.key_file, self.cert_file,
-                ssl_version=self._ssl_working_proto)
-            return
-
-        # Try connecting via the different SSL protos in preference order
-        for proto_name in self._preferred_ssl_protos:
-            sock = self._create_sock()
-            proto = getattr(ssl, proto_name, None)
-            try:
-                self.sock = ssl.wrap_socket(sock, self.key_file, self.cert_file,
-                    ssl_version=proto)
-            except:
-                sock.close()
-            else:
-                # Cache the working ssl version
-                HTTPSConnectionChain._ssl_working_proto = proto
-                break
-
-
-class HTTPSHandlerChain(urllib2.HTTPSHandler):
-    def https_open(self, req):
-        return self.do_open(HTTPSConnectionChain, req)
-
-# install opener
-urllib2.install_opener(urllib2.build_opener(HTTPSHandlerChain()))
-
-class PysHTTPRedirectHandler(urllib2.HTTPRedirectHandler):
-    """
-    This class is used to override the default behavior of the
-    HTTPRedirectHandler, which does *not* redirect POST data
-    """
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        m = req.get_method()
-        if (code in (301, 302, 303, 307) and m in ("GET", "HEAD")
-            or code in (301, 302, 303) and m == "POST"):
-            newurl = newurl.replace(' ', '%20')
-            newheaders = dict((k, v) for k, v in req.headers.items()
-                if k.lower() not in ("content-length", "content-type")
-            )
-            data = None
-            if req.has_data():
-                data = req.get_data()
-            return urllib2.Request(newurl,
-                           data=data,
-                           headers=newheaders,
-                           origin_req_host=req.get_origin_req_host(),
-                           unverifiable=True)
-        else:
-            raise urllib2.HTTPError(req.get_full_url(), code, msg, headers, fp)
 
 class Connection(object):
     def __init__(self, baseUrl, username=None, password=None, port=4040,
@@ -2479,15 +2418,12 @@ class Connection(object):
     # Private internal methods
     #
     def _getOpener(self, username, passwd):
-        creds = b64encode('%s:%s' % (username, passwd))
-        # Context is only relevent in >= python 2.7.9
-        https_chain = HTTPSHandlerChain()
-        if sys.version_info[:3] >= (2, 7, 9) and self._insecure:
-            https_chain = HTTPSHandlerChain(
-                context=ssl._create_unverified_context())
-        opener = urllib2.build_opener(PysHTTPRedirectHandler, https_chain)
-        opener.addheaders = [('Authorization', 'Basic %s' % creds)]
-        return opener
+        s = Session()
+        s.auth = (username, passwd)
+
+        s.verify = not self._insecure
+
+        return s
 
     def _getQueryDict(self, d):
         """
@@ -2503,8 +2439,9 @@ class Connection(object):
         qstring.update(query)
         url = '%s:%d/%s/%s' % (self._baseUrl, self._port, self._serverPath,
             viewName)
-        req = urllib2.Request(url, urlencode(qstring))
-        return req
+
+        req = Request('GET', url, params=qstring)
+        return self._opener.prepare_request(req)
 
     def _getRequestWithList(self, viewName, listName, alist, query={}):
         """
@@ -2515,12 +2452,11 @@ class Connection(object):
         qstring.update(query)
         url = '%s:%d/%s/%s' % (self._baseUrl, self._port, self._serverPath,
             viewName)
-        data = StringIO()
-        data.write(urlencode(qstring))
-        for i in alist:
-            data.write('&%s' % urlencode({listName: i}))
-        req = urllib2.Request(url, data.getvalue())
-        return req
+
+        qstring[listName] = alist
+
+        req = Request('GET', url, params=qstring)
+        return self._opener.prepare_request(req)
 
     def _getRequestWithLists(self, viewName, listMap, query={}):
         """
@@ -2536,27 +2472,27 @@ class Connection(object):
         qstring.update(query)
         url = '%s:%d/%s/%s' % (self._baseUrl, self._port, self._serverPath,
             viewName)
-        data = StringIO()
-        data.write(urlencode(qstring))
-        for k, l in listMap.iteritems():
-            for i in l:
-                data.write('&%s' % urlencode({k: i}))
-        req = urllib2.Request(url, data.getvalue())
-        return req
+
+        qstring.update(listMap)
+
+        req = Request('GET', url, params=qstring)
+        return self._opener.prepare_request(req)
 
     def _doInfoReq(self, req):
         # Returns a parsed dictionary version of the result
-        res = self._opener.open(req)
-        dres = json.loads(res.read())
+        resp = self._opener.send(req)
+
+        dres = resp.json()
         return dres['subsonic-response']
 
     def _doBinReq(self, req):
-        res = self._opener.open(req)
-        contType = res.info().getheader('Content-Type')
+        res = self._opener.send(req)
+        contType = res.headers['Content-Type']
+
         if contType:
             if contType.startswith('text/html') or \
                     contType.startswith('application/json'):
-                dres = json.loads(res.read())
+                dres = res.json()
                 return dres['subsonic-response']
         return res
 

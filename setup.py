@@ -32,6 +32,9 @@ setup(name='py-sonic',
         'information and have it returned in basic Python types.',
     packages=['libsonic'],
     package_dir={'libsonic': 'libsonic'},
+    install_requires=[
+        'requests',
+    ],
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: System Administrators',
