@@ -18,7 +18,8 @@ along with py-sonic.  If not, see <http://www.gnu.org/licenses/>
 """
 
 from distutils.core import setup
-from libsonic import __version__ as version
+
+version = '0.5.0'
 
 setup(name='py-sonic',
     version=version,
