@@ -28,3 +28,4 @@ print conn.ping()
 """
 
 from connection import *
+from version import __version__

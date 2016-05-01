@@ -17,12 +17,20 @@ You should have received a copy of the GNU General Public License
 along with py-sonic.  If not, see <http://www.gnu.org/licenses/>
 """
 
-from distutils.core import setup
 
-version = '0.5.0'
+from setuptools import setup
+
+from distutils.util import convert_path
+
+# Version trick from http://stackoverflow.com/questions/2058802/how-can-i-get-the-version-defined-in-setup-py-setuptools-in-my-package
+main_ns = {}
+ver_path = convert_path('libsonic/version.py')
+with open(ver_path) as ver_file:
+    exec(ver_file.read(), main_ns)
+
 
 setup(name='py-sonic',
-    version=version,
+    version=main_ns['__version__'],
     author='Jay Deiman',
     author_email='admin@splitstreams.com',
     url='http://stuffivelearned.org',
